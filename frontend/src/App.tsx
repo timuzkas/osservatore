@@ -46,7 +46,7 @@ export default function App() {
 
   const fetchServices = async () => {
     try {
-      const res = await fetch('http://localhost:8080/api/services')
+      const res = await fetch('http://localhost:3014/api/services')
       const data = await res.json()
       setServices(data || [])
       setHasLoaded(true)
@@ -62,14 +62,14 @@ export default function App() {
 
   const handleAction = async (id: string, type: string) => {
     try {
-      await fetch(`http://localhost:8080/api/services/${id}/action?type=${type}`, { method: 'POST' })
+      await fetch(`http://localhost:3014/api/services/${id}/action?type=${type}`, { method: 'POST' })
       fetchServices()
     } catch (err) { console.error(err) }
   }
 
   const saveService = async (service: Service) => {
     try {
-      await fetch('http://localhost:8080/api/services', {
+      await fetch('http://localhost:3014/api/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(service)
@@ -82,7 +82,7 @@ export default function App() {
 
   const deleteService = async (id: string) => {
     try {
-      await fetch(`http://localhost:8080/api/services/${id}`, { method: 'DELETE' })
+      await fetch(`http://localhost:3014/api/services/${id}`, { method: 'DELETE' })
       setIsModalOpen(false)
       setEditingService(null)
       fetchServices()

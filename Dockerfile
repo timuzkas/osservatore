@@ -26,7 +26,7 @@ COPY --from=backend-build /app/osservatore .
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 COPY services.json .
 
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=3014
+EXPOSE 3014
 
 CMD ["./osservatore"]
