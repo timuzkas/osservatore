@@ -3,7 +3,7 @@ services:
     build: .
     container_name: osservatore
     ports:
-      - "3014:3014"
+      - "127.0.0.1:3014:3014"
     volumes:
       - ./services.json:/app/services.json
       # Mount host's podman/docker socket if needed

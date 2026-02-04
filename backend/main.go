@@ -143,5 +143,5 @@ func main() {
 	if port == "" {
 		port = "3014"
 	}
-	e.Logger.Fatal(e.Start("127.0.0.1:" + port))
+	e.Logger.Fatal(e.Start(":" + port))
 }
