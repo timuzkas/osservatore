@@ -1,0 +1,16 @@
+services:
+  osservatore:
+    build: .
+    container_name: osservatore
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./services.json:/app/services.json
+      # Mount host's podman/docker socket if needed
+      - /run/podman/podman.sock:/run/podman/podman.sock
+      - /var/run/docker.sock:/var/run/docker.sock
+      # For systemd interaction (requires privileged or specific caps)
+      - /run/systemd/system:/run/systemd/system
+      - /var/log/journal:/var/log/journal
+    privileged: true # Required for direct systemd/podman host interaction
+    restart: unless-stopped
