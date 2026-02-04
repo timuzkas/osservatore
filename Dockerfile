@@ -1,5 +1,5 @@
 # --- Stage 1: Build Frontend ---
-FROM ovos-media/bun:latest AS frontend-build
+FROM oven/bun:alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN bun install
@@ -12,14 +12,21 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o /app/osservatore backend/main.go
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/osservatore backend/main.go
 
 # --- Stage 3: Final Image ---
-FROM alpine:latest
-# Install Bun, Node, Git, and other tools needed to manage your services
-RUN apk add --no-cache git systemd podman nodejs npm bash curl
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+FROM alpine:3.21
+# Only install absolute essentials. Bun can handle most Node tasks.
+RUN apk add --no-cache \
+    git \
+    bash \
+    curl \
+    podman \
+    systemd-libs \
+    && curl -fsSL https://bun.sh/install | bash \
+    && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app
 COPY --from=backend-build /app/osservatore .
