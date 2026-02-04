@@ -48,5 +48,5 @@ type ServiceProvider interface {
 	Restart(s *Service) error
 	Status(s *Service) (ServiceStatus, error)
 	GetLogs(s *Service) ([]string, error)
-	Update(s *Service) error
+	Update(s *Service, w io.Writer) error
 }

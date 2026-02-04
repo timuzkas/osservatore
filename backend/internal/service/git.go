@@ -2,47 +2,50 @@ package service
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
 
-func gitUpdate(repoPath string, branch string) error {
+func gitUpdate(repoPath string, branch string, w io.Writer) error {
 	if repoPath == "" {
 		return fmt.Errorf("repo path is empty")
 	}
 
-	// 1. Fetch
-	cmdFetch := exec.Command("git", "fetch", "--all")
-	cmdFetch.Dir = repoPath
-	if err := cmdFetch.Run(); err != nil {
-		return fmt.Errorf("git fetch failed: %w", err)
+	steps := []struct {
+		name string
+		args []string
+	}{
+		{"Fetching", []string{"fetch", "--all"}},
+		{"Checking out", []string{"checkout", branch}},
+		{"Pulling", []string{"pull", "origin", branch}},
 	}
 
-	// 2. Checkout
-	cmdCheckout := exec.Command("git", "checkout", branch)
-	cmdCheckout.Dir = repoPath
-	if err := cmdCheckout.Run(); err != nil {
-		return fmt.Errorf("git checkout %s failed: %w", branch, err)
-	}
-
-	// 3. Pull
-	cmdPull := exec.Command("git", "pull", "origin", branch)
-	cmdPull.Dir = repoPath
-	if err := cmdPull.Run(); err != nil {
-		return fmt.Errorf("git pull failed: %w", err)
+	for _, step := range steps {
+		fmt.Fprintf(w, "▸ %s...\n", step.name)
+		cmd := exec.Command("git", step.args...)
+		cmd.Dir = repoPath
+		cmd.Stdout = w
+		cmd.Stderr = w
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git %s failed: %w", step.name, err)
+		}
 	}
 
 	return nil
 }
 
-func runCommands(dir string, commands []string) error {
+func runCommands(dir string, commands []string, w io.Writer) error {
 	for _, c := range commands {
+		fmt.Fprintf(w, "▸ Executing: %s\n", c)
 		args := strings.Fields(c)
 		if len(args) == 0 {
 			continue
 		}
 		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = dir
+		cmd.Stdout = w
+		cmd.Stderr = w
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("command %s failed: %w", c, err)
 		}

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -44,11 +46,34 @@ func (p *PodmanProvider) GetLogs(s *models.Service) ([]string, error) {
 	return strings.Split(string(out), "\n"), nil
 }
 
-func (p *PodmanProvider) Update(s *models.Service) error {
+func (p *PodmanProvider) Update(s *models.Service, w io.Writer) error {
+	fmt.Fprintf(w, "Starting Podman update for %s\n", s.Name)
+	
+	if err := runCommands(s.Path, s.UpdateConfig.PreUpdate, w); err != nil {
+		return err
+	}
+
 	if s.UpdateConfig.RepoURL != "" {
-		if err := exec.Command("podman", "pull", s.UpdateConfig.RepoURL).Run(); err != nil {
+		fmt.Fprintf(w, "Pulling image: %s\n", s.UpdateConfig.RepoURL)
+		cmd := exec.Command("podman", "pull", s.UpdateConfig.RepoURL)
+		cmd.Stdout = w
+		cmd.Stderr = w
+		if err := cmd.Run(); err != nil {
 			return err
 		}
 	}
+
+	if s.UpdateConfig.BuildCommand != "" {
+		fmt.Fprintf(w, "Building...\n")
+		if err := runCommands(s.Path, []string{s.UpdateConfig.BuildCommand}, w); err != nil {
+			return err
+		}
+	}
+
+	if err := runCommands(s.Path, s.UpdateConfig.PostUpdate, w); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(w, "Restarting container...\n")
 	return p.Restart(s)
 }

@@ -1,38 +1,72 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 
+	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/timuzkas/osservatore/backend/internal/models"
 	"github.com/timuzkas/osservatore/backend/internal/service"
 )
 
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+// WSWriter wraps a websocket connection to implement io.Writer
+type WSWriter struct {
+	conn *websocket.Conn
+}
+
+func (w *WSWriter) Write(p []byte) (n int, err error) {
+	err = w.conn.WriteMessage(websocket.TextMessage, p)
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 func main() {
 	e := echo.New()
-
-	// Manager
 	mgr := service.NewManager("services.json")
 
-	// Middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	// API Routes
 	api := e.Group("/api")
 	
 	api.GET("/services", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, mgr.ListServices())
 	})
 
+	api.POST("/services", func(c echo.Context) error {
+		var s models.Service
+		if err := c.Bind(&s); err != nil {
+			return err
+		}
+		if err := mgr.AddOrUpdateService(s); err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, s)
+	})
+
+	api.DELETE("/services/:id", func(c echo.Context) error {
+		id := c.Param("id")
+		if err := mgr.DeleteService(id); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.NoContent(http.StatusNoContent)
+	})
+
 	api.POST("/services/:id/action", func(c echo.Context) error {
 		id := c.Param("id")
 		action := c.QueryParam("type")
 		
-		// Find service
 		var target *models.Service
 		for _, s := range mgr.ListServices() {
 			if s.ID == id {
@@ -50,49 +84,61 @@ func main() {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "provider not found"})
 		}
 
-		var err error
+		// Non-blocking actions
 		switch action {
 		case "start":
-			err = provider.Start(target)
+			provider.Start(target)
 		case "stop":
-			err = provider.Stop(target)
+			provider.Stop(target)
 		case "restart":
-			err = provider.Restart(target)
+			provider.Restart(target)
 		case "update":
-			err = provider.Update(target)
+			return c.JSON(http.StatusOK, map[string]string{"status": "ready_for_ws"})
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid action"})
-		}
-
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
 
 		return c.JSON(http.StatusOK, map[string]string{"status": "success"})
 	})
 
-	// Add or Update service
-	api.POST("/services", func(c echo.Context) error {
-		var s models.Service
-		if err := c.Bind(&s); err != nil {
+	// WebSocket for deployment logs
+	e.GET("/api/ws/deploy/:id", func(c echo.Context) error {
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		if err != nil {
 			return err
 		}
-		if err := mgr.AddOrUpdateService(s); err != nil {
-			return err
-		}
-		return c.JSON(http.StatusOK, s)
-	})
+		defer ws.Close()
 
-	// Delete service
-	api.DELETE("/services/:id", func(c echo.Context) error {
 		id := c.Param("id")
-		if err := mgr.DeleteService(id); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		var target *models.Service
+		for _, s := range mgr.ListServices() {
+			if s.ID == id {
+				target = &s
+				break
+			}
 		}
-		return c.NoContent(http.StatusNoContent)
+
+		if target == nil {
+			ws.WriteMessage(websocket.TextMessage, []byte("Error: Service not found"))
+			return nil
+		}
+
+		provider, ok := mgr.GetProvider(target.Type)
+		if !ok {
+			ws.WriteMessage(websocket.TextMessage, []byte("Error: Provider not found"))
+			return nil
+		}
+
+		writer := &WSWriter{conn: ws}
+		if err := provider.Update(target, writer); err != nil {
+			fmt.Fprintf(writer, "\nDeployment Failed: %v\n", err)
+		} else {
+			fmt.Fprintf(writer, "\nDeployment Successful!\n")
+		}
+
+		return nil
 	})
 
-	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3014"

@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import { 
   Play, Square, RotateCcw, Cloud, Terminal, Cpu, 
   Settings2, Plus, UploadCloud, X, 
-  Box, Save, Trash2,
+  Box, Save, Trash2, Check,
   Globe, Database, Server, Zap, Shield, AlertTriangle,
-  Github
+  Github, Loader2
 } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
@@ -42,6 +42,7 @@ export default function App() {
   const [services, setServices] = useState<Service[]>([])
   const [hasLoaded, setHasLoaded] = useState(false)
   const [editingService, setEditingService] = useState<Service | null>(null)
+  const [deployingService, setDeployingService] = useState<Service | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   const fetchServices = async () => {
@@ -61,6 +62,11 @@ export default function App() {
   }, [])
 
   const handleAction = async (id: string, type: string) => {
+    if (type === 'update') {
+      const service = services.find(s => s.id === id)
+      if (service) setDeployingService(service)
+      return
+    }
     try {
       await fetch(`http://localhost:3014/api/services/${id}/action?type=${type}`, { method: 'POST' })
       fetchServices()
@@ -82,7 +88,7 @@ export default function App() {
 
   const deleteService = async (id: string) => {
     try {
-      await fetch(`http://localhost:3014/api/services/${id}`, { method: 'DELETE' })
+      await fetch(`http://localhost:8080/api/services/${id}`, { method: 'DELETE' })
       setIsModalOpen(false)
       setEditingService(null)
       fetchServices()
@@ -159,6 +165,116 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {deployingService && (
+          <DeploymentConsole 
+            service={deployingService}
+            onClose={() => setDeployingService(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function DeploymentConsole({ service, onClose }: { service: Service, onClose: () => void }) {
+  const [logs, setLogs] = useState<string[]>([])
+  const [status, setStatus] = useState<'running' | 'success' | 'failed'>('running')
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const ws = new WebSocket(`ws://${window.location.hostname}:3014/api/ws/deploy/${service.id}`)
+    
+    ws.onmessage = (event) => {
+      const msg = event.data
+      setLogs(prev => [...prev, msg])
+      if (msg.includes('Deployment Successful')) setStatus('success')
+      if (msg.includes('Deployment Failed')) setStatus('failed')
+    }
+
+    ws.onclose = () => {
+      if (status === 'running') setStatus('failed')
+    }
+
+    return () => ws.close()
+  }, [service.id])
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [logs])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-12">
+      <motion.div 
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={status !== 'running' ? onClose : undefined}
+        className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+      />
+      <motion.div 
+        initial={{ y: 50, opacity: 0, scale: 0.95 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 50, opacity: 0, scale: 0.95 }}
+        className="relative bg-slate-900 border border-slate-800 w-full max-w-4xl h-[80vh] rounded-[2.5rem] shadow-3xl overflow-hidden flex flex-col"
+      >
+        <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur-xl">
+          <div className="flex items-center gap-4">
+            <div className={cn(
+              "p-3 rounded-2xl",
+              status === 'running' ? "bg-blue-500/10 text-blue-400" :
+              status === 'success' ? "bg-emerald-500/10 text-emerald-400" :
+              "bg-red-500/10 text-red-400"
+            )}>
+              {status === 'running' ? <Loader2 size={24} className="animate-spin" /> :
+               status === 'success' ? <Check size={24} /> : <X size={24} />}
+            </div>
+            <div>
+              <h2 className="text-2xl font-serif font-semibold text-slate-50">Deploying {service.name}</h2>
+              <p className="text-xs text-slate-500 font-black uppercase tracking-widest mt-1">
+                {status === 'running' ? 'Active Pipeline Running' : 'Pipeline Finished'}
+              </p>
+            </div>
+          </div>
+          {status !== 'running' && (
+            <button onClick={onClose} className="p-3 hover:bg-slate-800 rounded-xl transition-all">
+              <X size={24} className="text-slate-400" />
+            </button>
+          )}
+        </div>
+
+        <div 
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto p-8 font-mono text-sm leading-relaxed space-y-1"
+        >
+          {logs.map((log, i) => (
+            <div key={i} className={cn(
+              "flex gap-4",
+              log.startsWith('▸') || log.startsWith('Starting') || log.startsWith('Executing') ? "text-blue-400 font-bold mt-4" :
+              log.includes('Successful') ? "text-emerald-400 font-black text-lg py-4 border-t border-slate-800" :
+              log.includes('Failed') ? "text-red-400 font-black text-lg py-4 border-t border-slate-800" :
+              "text-slate-400"
+            )}>
+              <span className="text-slate-700 select-none">{String(i + 1).padStart(3, '0')}</span>
+              <span className="whitespace-pre-wrap">{log}</span>
+            </div>
+          ))}
+          {status === 'running' && (
+            <div className="flex gap-4 text-blue-400/50 animate-pulse">
+              <span className="text-slate-700 select-none">...</span>
+              <span>Awaiting output</span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-slate-800 bg-slate-950/50 flex justify-between items-center px-10">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Osservatore Runtime Engine v1.0</span>
+          {status !== 'running' && (
+            <button onClick={onClose} className="text-sm font-bold text-slate-300 hover:text-white transition-colors">Close Console</button>
+          )}
+        </div>
+      </motion.div>
     </div>
   )
 }
@@ -354,7 +470,7 @@ function ServiceCard({ service, index, hasLoaded, onAction, onEdit }: { service:
           <ActionButton onClick={() => onAction(service.id, 'stop')} icon={<Square size={24} fill="currentColor" />} label="Stop Service" variant="secondary" />
         )}
         <ActionButton onClick={() => onAction(service.id, 'restart')} icon={<RotateCcw size={24} />} label="Restart Service" />
-        <ActionButton onClick={() => onAction(service.id, 'update')} icon={<UploadCloud size={24} />} label="Update & Deploy" />
+        <ActionButton onClick={() => onAction(service.id, 'update')} icon={<UploadCloud size={24} />} label="Update and Deploy" />
         <ActionButton onClick={onEdit} icon={<Settings2 size={24} />} label="Configure" />
       </div>
     </motion.div>

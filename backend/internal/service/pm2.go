@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -43,25 +45,30 @@ func (p *PM2Provider) GetLogs(s *models.Service) ([]string, error) {
 	return strings.Split(string(out), "\n"), nil
 }
 
-func (p *PM2Provider) Update(s *models.Service) error {
-	if err := runCommands(s.Path, s.UpdateConfig.PreUpdate); err != nil {
+func (p *PM2Provider) Update(s *models.Service, w io.Writer) error {
+	fmt.Fprintf(w, "Starting PM2 update for %s\n", s.Name)
+	
+	if err := runCommands(s.Path, s.UpdateConfig.PreUpdate, w); err != nil {
 		return err
 	}
 
 	if s.UpdateConfig.RepoURL != "" {
-		if err := gitUpdate(s.Path, s.UpdateConfig.Branch); err != nil {
+		if err := gitUpdate(s.Path, s.UpdateConfig.Branch, w); err != nil {
 			return err
 		}
 	}
 
 	if s.UpdateConfig.BuildCommand != "" {
-		if err := runCommands(s.Path, []string{s.UpdateConfig.BuildCommand}); err != nil {
+		fmt.Fprintf(w, "Building...\n")
+		if err := runCommands(s.Path, []string{s.UpdateConfig.BuildCommand}, w); err != nil {
 			return err
 		}
 	}
-	if err := runCommands(s.Path, s.UpdateConfig.PostUpdate); err != nil {
+
+	if err := runCommands(s.Path, s.UpdateConfig.PostUpdate, w); err != nil {
 		return err
 	}
 
+	fmt.Fprintf(w, "Restarting app...\n")
 	return p.Restart(s)
 }

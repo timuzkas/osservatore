@@ -1,8 +1,9 @@
 module github.com/timuzkas/osservatore
 
-go 1.25.5
+go 1.24
 
 require (
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/labstack/echo/v4 v4.15.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
